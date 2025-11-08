@@ -210,7 +210,6 @@
                     <div class="upload-area" id="uploadArea">
                         <div class="upload-icon">📁</div>
                         <div class="upload-text">Drag & drop your image here</div>
-                        <div>or</div>
                     </div>
                 </label>
                 <input type="file" name="image" id="image" class="file-input" required accept="image/*">
