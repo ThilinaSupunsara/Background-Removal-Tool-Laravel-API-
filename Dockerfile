@@ -1,35 +1,41 @@
-# ---------------------------------
-# Stage 1: Build Stage (Dependencies)
-# ---------------------------------
-FROM composer:2 AS builder
-WORKDIR /app
-COPY database/ database/
-COPY composer.json composer.lock ./
-
-# Install dependencies --scripts නොකර (artisan run වීම නවත්වන්න)
-RUN composer install --no-dev --no-interaction --no-scripts
-
-# Autoloader එක optimize කිරීම
-RUN composer dump-autoload --optimize --no-dev --classmap-authoritative --no-scripts
-
-# ---------------------------------
-# Stage 2: Final Stage (Production)
-# ---------------------------------
-# --- !! මෙන්න අලුත් Apache image එක !! ---
-FROM webdevops/php-apache:8.2
+# Use the official PHP 8.2 with Apache base image
+FROM php:8.2-apache
 
 # Set working directory
-WORKDIR /app
+WORKDIR /var/www/html
 
-# --- Nginx config file එක copy කරන line එක අපි අයින් කළා ---
-# --- Apache config file එකක් අවශ්‍ය නෑ! ---
+# 1. Install system dependencies & PHP/NodeJS
 
-# Copy dependencies from the builder stage
-COPY --from=builder /app/vendor/ /app/vendor/
+RUN apt-get update && apt-get install -y \
+    git \
+    unzip \
+    # --- DEPENDENCIES FOR PHP EXTENSIONS ---
+    libzip-dev \
+    libpng-dev \
+    libsqlite3-dev \
+    libjpeg62-turbo-dev \
+    libfreetype6-dev \
+    # --- END DEPENDENCIES ---
+    && docker-php-ext-configure gd --with-freetype --with-jpeg \
+    && docker-php-ext-install -j$(nproc) pdo_sqlite zip exif pcntl bcmath gd \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Copy the rest of the application code
-COPY . .
+# 2. Install Composer
+COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
-# Set correct permissions
-RUN chown -R application:application /app/storage /app/bootstrap/cache && \
-    chmod -R 775 /app/storage /app/bootstrap/cache
+# 3. Configure Apache to point to Laravel's public folder
+COPY .docker/apache.conf /etc/apache2/sites-available/000-default.conf
+RUN a2enmod rewrite
+
+# 4. Copy application code and set correct permissions
+COPY . /var/www/html
+RUN chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache
+
+# 5. Install Composer (PHP) dependencies
+RUN composer install --no-dev --optimize-autoloader
+
+# 6. Copy and enable the entrypoint script
+# (Note: NPM steps were removed from here)
+COPY .docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
